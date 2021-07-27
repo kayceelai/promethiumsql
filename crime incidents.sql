@@ -1,10 +1,9 @@
-WITH d_tbl AS
-  (SELECT "mysql"."promethium"."US_REGIONS"."US_STATE" AS "US_STATE",
+WITH crime_and_region AS
+  (SELECT "mysql"."promethium"."US_REGIONS"."US_STATE" AS "State Code",
           "mysql"."promethium"."COMBINED_CRIME_INCIDENTS"."COMBINED_CRIME_INCIDENTS" AS "COMBINED_CRIME_INCIDENTS"
    FROM "mysql"."promethium"."COMBINED_CRIME_INCIDENTS"
    LEFT OUTER JOIN "mysql"."promethium"."US_REGIONS" ON ("mysql"."promethium"."COMBINED_CRIME_INCIDENTS"."REGION_CODE" = "mysql"."promethium"."US_REGIONS"."REGION_CODE"))
-SELECT US_STATE,
-       SUM(COMBINED_CRIME_INCIDENTS) SUM_CRIME_INCIDENTS
-FROM d_tbl
-GROUP BY US_STATE
-ORDER BY SUM_CRIME_INCIDENTS DESC
+SELECT "State Code",
+       SUM(COMBINED_CRIME_INCIDENTS) as "Total Crimes"
+FROM crime_and_region
+GROUP BY "State Code"

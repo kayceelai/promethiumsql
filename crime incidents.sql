@@ -7,3 +7,4 @@ SELECT "State Code",
        SUM(COMBINED_CRIME_INCIDENTS) as "Total Crimes"
 FROM crime_and_region
 GROUP BY "State Code"
+LIMIT 100

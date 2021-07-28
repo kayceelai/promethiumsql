@@ -15,4 +15,4 @@ GROUP BY "PACKAGE",
          "TERM",
          "DISC",
          "BILLING_METHOD"
-LIMIT 10000
+LIMIT 1000

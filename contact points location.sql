@@ -8,7 +8,7 @@ SELECT ps.party_id AS "Party Id",
        cp.status AS "Status",
        su.site_use_code AS "Site Use Code",
        su.status AS "Site Use Status",
-       su.location AS "Site USE LOCATION
+       su.location AS "Site Use Location"
 FROM "bigquery"."atd_dlk_ebs_data"."ar_hz_contact_points_gg" cp
 LEFT JOIN "bigquery"."atd_dlk_ebs_data"."ar_hz_party_sites_gg" ps ON cp.owner_table_id = ps.party_site_id
 LEFT JOIN "bigquery"."atd_dlk_ebs_data"."ar_hz_cust_acct_sites_all_gg" sa ON owner_table_id = sa.party_site_id

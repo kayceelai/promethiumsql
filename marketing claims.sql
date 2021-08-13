@@ -1,181 +1,199 @@
-WITH ctebi AS
-(
-SELECT     cl.invoicecode,
-cl.linenumber,
-Max(cl.units)  AS units,
-Max(cl.sales)  AS sales,
-gl.promotionid AS aspirepromotionid
-/* -- ,cl.GLTransactionID , */
-CAST( MAX(
-CASE
-WHEN gl.isnotgoalattain <> '1' THEN cl.units
-ELSE '0'
-END ) AS VARCHAR ) AS goalunits
-FROM       hivegcs.art.marketing_claim cl
-INNER JOIN hivegcs.art.marketing_gltransaction gl
-ON         cl.gltransactionid = gl.gltransactionid
-WHERE      1 = 1
-AND        gl.status <> 'Denied'
-AND        cl.invoicedate BETWEEN '2021-01-01 00:00:00' AND        '2021-04-12 00:00:00'
-/* --AND  cl.INVOICECODE='S150017266'   */
-GROUP BY   cl.invoicecode,
-cl.linenumber,
-gl.promotionid ), cte_dhp AS
-(
-SELECT *
-FROM   bigquery.atd_dlk_ebs.reporting_xxatdrp_sales_history_vw ds
-/* --PRD_DS_RAW.APPS.XXATDRP_SALES_HISTORY DS   */
-WHERE  1 = 1
-AND    ( (
-DATE(ds.invoice_date) BETWEEN DATE('2021-01-01') AND    DATE('2021-04-12') ) )
-/* --AND '2021-04-12 00:00:00.000') ) ), cte_customer AS (   */SELECT *
-FROM   snowflake_prd_ds_raw_dw.dw.dim_customer c
-/* --PRD_DS_RAW.DW_DATA.DIM_CUSTOMER c   */
-WHERE  1 = 1
-/* --and c.location_cd='640063'     */
-AND    currentflag = '1' ), cte_program AS
-(
-SELECT *
-FROM   msbi_uat.dw.dim_program dp ), ctebi_with_location AS
-(
-SELECT     dd.date_id,
-hp.invoice_no      AS invoicecode,
-hp.invoice_line_no AS linenumber,
-c.customer_cd,
-c.location_cd,
-c.dba_nm AS location_name,
-pd.product_cd,
-dp.program_cd,
-dp.program_nm,
-dp.aspirepromotionid,
-a.units           AS aspire_unit,
-a.sales           AS aspire_sales,
-a.goalunits       AS goalunits,
-hp.quantity       AS hp_units,
-hp.gl_total_sales AS hp_sales
-FROM       cte_dhp hp
-INNER JOIN snowflake_prd_ds_raw_dw.dw.dim_date dd
-ON         dd.calendar_dt = hp.invoice_date
-INNER JOIN cte_customer c
-ON         c.customer_cd = hp.ship_to_customer_no
-AND        c.location_cd = hp.ship_to_location
-INNER JOIN snowflake_prd_ds_raw_dw.dw.dim_product pd
-ON         pd.product_cd = hp.product
-INNER JOIN ctebi a
-ON         hp.invoice_no = a.invoicecode
-AND        CAST(hp.invoice_line_no AS VARCHAR) = CAST(a.linenumber AS VARCHAR)
-INNER JOIN msbi_uat.dw.dim_program dp
-ON         CAST(dp.aspirepromotionid AS VARCHAR) = CAST(a.aspirepromotionid AS VARCHAR)
-WHERE      a.goalunits <> '0' ), ctebi_with_location_sum AS
-(
-SELECT   customer_cd,
-location_cd,
-location_name,
-program_cd,
-program_nm,
-aspirepromotionid,
-SUM(CAST(aspire_unit AS DOUBLE))  AS aspire_unit,
-SUM(CAST(aspire_sales AS DOUBLE)) AS aspire_sales,
-SUM(CAST(hp_units AS DOUBLE))     AS hp_units,
-SUM(CAST(hp_sales AS DOUBLE))     AS hp_sales
-/* --,count(*)   */
-FROM     ctebi_with_location
-WHERE    1 = 1
-/* --AND cl.INVOICEDATE between '2021-01-01 00:00:00'and '2021-04-12 00:00:00'   -----3,064,903     --and cl.GLTransactionID is not null     --GROUP BY cl.ORDERSOURCE;   */
-GROUP BY customer_cd,
-location_cd,
-location_name,
-program_cd,
-aspirepromotionid,
-program_nm ) , cte_earnings AS
-(
-SELECT CAST(year_to_date_purchases AS DOUBLE) AS earningsummaryunits,
-*
-FROM   snowflake_dmo_sandbox_mktg.marketing.xxatdar_earnings_summary_stg_20210512
-WHERE  1=1
-AND    org_id=82
-AND    DATE(data_as_of_date)= DATE('2021-04-12')
-/* --00:00:00')--2021-01-01 00:00:00--   ),       cte_Program_to_Earnings_by_location AS */
-(
-SELECT i.customer_cd,
-i.location_cd,
-i.location_name,
-i.program_cd,
-i.program_nm,
-i.aspirepromotionid,
-MAX(i.aspire_unit)         AS aspire_unit,
-MAX(i.hp_units)            AS hp_units,
-MAX(i.hp_sales)            AS hp_sales,
-MAX(u.earningsummaryunits) AS earningsummary_units,
-/* --(CASE       --          WHEN i.Program_cd = '21WHEELGROWTH' THEN 1       --      ELSE 0 END) AS ProgramType,  ( */
-CASE
-WHEN (
-MAX(u.account_number) IS NULL
-AND    MAX(u.location_number) IS NULL) THEN 1
-/* --MAX(u.YearPurchases)  IS NULL THEN 1             */
-ELSE 0
-END) AS claimonly,
-/* --(CASE      --           WHEN MAX(u.YEAR_TO_DATE_PURCHASES)  IS NULL THEN 1      --       ELSE 0  END) AS ClaimOnly, ( */
-CASE
-WHEN i.program_cd = '21WHEELGROWTH' THEN ROUND(MAX(i.hp_sales), 0)
-ELSE 0
-END) AS totalsales, (
-CASE
-WHEN i.program_cd <> '21WHEELGROWTH'THEN
-MAX(u.earningsummaryunits)
-ELSE
-0
-END) AS totalearningsummarysales, (
-CASE
-WHEN i.program_cd = '21WHEELGROWTH' THEN
-0
-ELSE
-MAX((i.aspire_unit))
-END) AS totalunits, (
-CASE
-WHEN MAX((i.aspire_unit)) = 0 THEN
-'N'
-ELSE
-'Y'
-END) AS isvalue, (
-CASE
-WHEN i.program_cd = '21WHEELGROWTH' THEN
-(ROUND(MAX((i.hp_sales)), 0) - ROUND(MAX(u.earningsummaryunits), 0))
-ELSE
-MAX((i.aspire_unit)) - MAX(u.earningsummaryunits)
-END ) AS difference2 ,
-CASE
-WHEN (
-CASE
-WHEN i.program_cd = '21WHEELGROWTH' THEN
-(ROUND(MAX(i.hp_sales), 0) - ROUND(MAX(u.earningsummaryunits), 0))
-ELSE
-MAX(i.aspire_unit) - MAX(u.earningsummaryunits)
-END )=0 THEN
-'Y'
-ELSE
-'N'
-END AS ismatch FROM ctebi_with_location_sum i LEFT OUTER JOIN cte_earnings u ON i.customer_cd = CAST(u.account_number AS VARCHAR(40))
-AND
-i.location_cd = CAST(u.location_number AS VARCHAR(40))
-AND
-i.program_cd = u.program_code GROUP BY i.customer_cd, i.location_cd, i.location_name, i.program_cd, i.program_nm, i.aspirepromotionid)SELECT customer_cd,
-location_cd,
-location_name,
-program_cd,
-program_nm,
-aspirepromotionid,
-aspire_unit,
-hp_units,
-hp_sales,
-earningsummary_units,
-claimonly,
-totalsales,
-totalearningsummarysales,
-totalunits,
-totalearningsummarysales,
-totalunits,
-isvalue,
-difference2,
-ismatch
-FROM  cte_program_to_earnings_by_location limit 10
+WITH ctebi AS (
+  select
+    cl.invoiceCode,
+    cl.LineNumber,
+    MAX(cl.Units) AS Units,
+    MAX(cl.Sales) AS Sales,
+    gl.PromotionID AS AspirePromotionID -- ,cl.GLTransactionID
+,
+    cast(
+      MAX(
+        CASE WHEN gl.IsNotGoalAttain <> '1' THEN cl.Units ELSE '0' END
+      ) as varchar
+    ) AS GoalUnits
+  from
+    hivegcs.art.marketing_claim cl
+    inner join hivegcs.art.marketing_gltransaction gl on cl.GLTransactionID = gl.GLTransactionID
+  where
+    1 = 1
+    and gl.Status <> 'Denied'
+    AND cl.INVOICEDATE between '2021-01-01 00:00:00'
+    and '2021-04-12 00:00:00' --AND  cl.INVOICECODE='S150017266'
+  GROUP BY
+    cl.InvoiceCode,
+    cl.LineNumber,
+    gl.PromotionID
+),
+cte_DHP as (
+  select
+    *
+  from
+    bigquery.atd_dlk_ebs.reporting_xxatdrp_sales_history_vw DS --PRD_DS_RAW.APPS.XXATDRP_SALES_HISTORY DS
+  where
+    1 = 1
+    and (
+      (
+        date(DS.INVOICE_DATE) between DATE('2021-01-01')
+        and DATE('2021-04-12')
+      )
+    ) --AND '2021-04-12 00:00:00.000') )
+),
+cte_customer as (
+  select
+    *
+  from
+    snowflake_prd_ds_raw_dw.DW.DIM_CUSTOMER C --PRD_DS_RAW.DW_DATA.DIM_CUSTOMER c
+  where
+    1 = 1 --and c.location_cd='640063'
+    and currentflag = '1'
+),
+cte_Program as (
+  select
+    *
+  from
+    msbi_uat.DW.Dim_Program dp
+),
+ctebi_with_Location as (
+  select
+    dd.date_id,
+    hp.Invoice_no as invoiceCode,
+    hp.Invoice_line_no as LineNumber,
+    c.Customer_cd,
+    c.Location_cd,
+    c.DBA_NM as Location_Name,
+    pd.Product_cd,
+    dp.Program_cd,
+    dp.Program_nm,
+    dp.AspirePromotionID,
+    a.Units as AsPire_Unit,
+    a.Sales as AsPire_Sales,
+    a.GoalUnits AS GoalUnits,
+    hp.quantity as hp_Units,
+    hp.GL_TOTAL_SALES as hp_Sales
+  from
+    cte_DHP hp
+    inner join snowflake_prd_ds_raw_dw.DW.DIM_DATE dd on dd.CALENDAR_DT = hp.INVOICE_DATE
+    inner JOIN cte_customer c ON c.Customer_cd = hp.SHIP_TO_CUSTOMER_NO
+    and c.Location_cd = hp.SHIP_TO_LOCATION
+    inner join snowflake_prd_ds_raw_dw.DW.DIM_PRODUCT pd on pd.Product_cd = hp.Product
+    inner join ctebi a ON hp.Invoice_No = a.invoiceCode
+    and cast(hp.Invoice_line_no as varchar) = cast(a.LineNumber as varchar)
+    inner join msbi_uat.DW.Dim_Program dp on cast(dp.AspirePromotionID as varchar) = cast(a.AspirePromotionID as varchar)
+  where
+    a.GoalUnits <> '0'
+),
+ctebi_with_Location_sum as (
+  select
+    Customer_cd,
+    Location_cd,
+    Location_Name,
+    Program_cd,
+    Program_nm,
+    AspirePromotionID,
+    SUM(cast(AsPire_Unit as double)) AS AsPire_Unit,
+    sum(cast(AsPire_Sales as double)) as AsPire_Sales,
+    sum(cast(hp_Units as double)) as hp_Units,
+    sum(cast(hp_Sales as double)) as hp_Sales --,count(*)
+  from
+    ctebi_with_Location
+  where
+    1 = 1 --AND cl.INVOICEDATE between '2021-01-01 00:00:00'and '2021-04-12 00:00:00'   -----3,064,903
+    --and cl.GLTransactionID is not null
+    --GROUP BY cl.ORDERSOURCE;
+  GROUP BY
+    Customer_cd,
+    Location_cd,
+    Location_Name,
+    Program_cd,
+    AspirePromotionID,
+    Program_nm
+)
+, cte_Earnings as (
+select  CAST(YEAR_TO_DATE_PURCHASES as double) AS EarningSummaryUnits,*
+from
+snowflake_dmo_sandbox_mktg.MARKETING.XXATDAR_EARNINGS_SUMMARY_STG_20210512
+ where 1=1
+  and ORG_ID=82
+  and Date(DATA_AS_OF_DATE)= Date('2021-04-12') --00:00:00')--2021-01-01 00:00:00--
+  ),
+      cte_Program_to_Earnings_by_location
+AS (SELECT i.Customer_cd,
+           i.Location_cd,
+           i.Location_NAME,
+           i.Program_cd,
+           i.Program_nm,
+           i.AspirePromotionID,
+           MAX(i.AsPire_Unit) AS AsPire_Unit,
+           MAX(i.hp_Units) AS hp_Units,
+           MAX(i.hp_Sales) AS hp_Sales,
+           MAX(u.EarningSummaryUnits) AS EarningSummary_Units,
+   --(CASE
+      --          WHEN i.Program_cd = '21WHEELGROWTH' THEN 1
+      --      ELSE 0 END) AS ProgramType,
+
+ (CASE
+                WHEN  (MAX(u.ACCOUNT_NUMBER)  IS NULL  AND MAX(u.LOCATION_NUMBER) IS NULL)  THEN 1   --MAX(u.YearPurchases)  IS NULL THEN 1
+            ELSE 0  END) AS ClaimOnly,
+
+ --(CASE
+     --           WHEN MAX(u.YEAR_TO_DATE_PURCHASES)  IS NULL THEN 1
+     --       ELSE 0  END) AS ClaimOnly,
+(CASE
+                WHEN i.Program_cd = '21WHEELGROWTH' THEN
+           ROUND(MAX(i.hp_Sales), 0)  ELSE 0  END) AS TotalSales,
+  (CASE
+                WHEN i.Program_cd <> '21WHEELGROWTH'THEN
+           MAX(u.EarningSummaryUnits)  ELSE 0  END) AS TotalEarningSummarySales,
+  (CASE
+                WHEN i.Program_cd = '21WHEELGROWTH'  THEN
+           0  ELSE MAX((i.AsPire_Unit))  END) AS TotalUnits,
+     (CASE
+                WHEN MAX((i.AsPire_Unit)) = 0 THEN
+           'N'  ELSE 'Y'  END) AS IsValue,
+
+           (CASE
+                WHEN i.Program_cd = '21WHEELGROWTH'  THEN
+           (ROUND(MAX((i.hp_Sales)), 0) - ROUND(MAX(u.EarningSummaryUnits), 0))
+                ELSE
+                    MAX((i.AsPire_Unit)) - MAX(u.EarningSummaryUnits)
+            END
+           ) AS Difference2
+  , CASE WHEN    (CASE
+                WHEN i.Program_cd = '21WHEELGROWTH'  THEN
+           (ROUND(MAX(i.hp_Sales), 0) - ROUND(MAX(u.EarningSummaryUnits), 0))
+                ELSE
+                    MAX(i.AsPire_Unit) - MAX(u.EarningSummaryUnits)
+            END
+           )=0 THEN 'Y' ELSE 'N' END  AS IsMatch
+    FROM ctebi_with_Location_sum i
+        LEFT OUTER JOIN cte_Earnings u
+            ON i.Customer_cd = CAST(u.ACCOUNT_NUMBER AS VARCHAR(40))
+               AND i.Location_cd = CAST(u.LOCATION_NUMBER AS VARCHAR(40))
+               AND i.Program_cd = u.PROGRAM_CODE
+    GROUP BY i.Customer_cd,
+             i.Location_cd,
+             i.Location_NAME,
+             i.Program_cd,
+             i.Program_nm,
+             i.AspirePromotionID)
+SELECT customer_cd,
+       location_cd,
+       location_name,
+       program_cd,
+       program_nm,
+       aspirepromotionid,
+       aspire_unit,
+       hp_units,
+       hp_sales,
+       earningsummary_units,
+       claimonly,
+       totalsales,
+       totalearningsummarysales,
+       totalunits,
+       totalearningsummarysales,
+       totalunits,
+       isvalue,
+       difference2,
+       ismatch
+FROM cte_program_to_earnings_by_location
+LIMIT 10

@@ -23,7 +23,7 @@ FROM
    FROM "oracle"."RDSORACLEFORPRESTO"."TLOG_PRODUCT_PLUNAMES" as "Menu Items"
    LEFT OUTER JOIN "mysql"."promethium"."restaurant_orders" ON ( "Menu Items"."REST_KEY" = "mysql"."promethium"."restaurant_orders"."rest_key" ) )
 GROUP BY "Menu Item",
-         "city",
+         "City",
          "State",
          "Franchisee Group",
          "Franchisee Parent"

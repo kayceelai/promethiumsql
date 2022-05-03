@@ -17,4 +17,4 @@ LEFT JOIN "bigquery"."atd_dlk_ebs_data"."ar_hz_cust_accounts_gg" cust_accounts O
 LEFT JOIN "bigquery"."atd_dlk_ebs_data"."ar_hz_cust_site_uses_all_gg" site_uses ON sites_all.cust_acct_site_id = site_uses.cust_acct_site_id
 WHERE OWNER_TABLE_NAME = 'HZ_PARTY_SITES'
   AND LOCATION IS NOT NULL
-LIMIT 100
+LIMIT 1000
